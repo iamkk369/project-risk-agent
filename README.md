@@ -149,6 +149,56 @@ python -m compileall src tests
 git diff --check
 ```
 
+## Real-World Testing
+
+### Local Execution
+
+**Repository:** `pallets/flask`
+
+**Execution:**
+
+```bash
+python -m risk_agent.main --local --repo pallets/flask
+```
+
+**Actual result:**
+
+- Successfully analyzed the real public GitHub repository
+- 1 issue analyzed
+- 0 High Risk
+- 0 Medium Risk
+- 1 On Track
+- Project Health: On Track
+- Risk Trajectory: Unchanged: On Track
+
+![Local execution against pallets/flask](docs/assets/local-execution-pallets-flask.svg)
+
+### Strands + Gemini Execution
+
+**Repository:** `pallets/flask`
+
+**Execution:**
+
+```bash
+python -m risk_agent.main --repo pallets/flask
+```
+
+**Actual result:**
+
+- Successfully analyzed the real public GitHub repository
+- 1 issue analyzed
+- 0 High Risk
+- 0 Medium Risk
+- 1 On Track
+- Project Health: On Track
+- Gemini generated the Executive Risk Summary and recommended manager decision
+
+![Strands + Gemini execution against pallets/flask](docs/assets/strands-gemini-execution-pallets-flask.svg)
+
+### Current Limitation
+
+The current GitHub ingestion implementation is intended for smaller repositories. During testing, a large repository such as `microsoft/vscode` failed with HTTP 422 because the current page-based pagination approach is not supported by GitHub for large datasets. Since this was developed as a hackathon-focused project, large-scale repository ingestion is currently outside the scope.
+
 ## Project structure
 
 ```text

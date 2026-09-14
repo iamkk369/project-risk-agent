@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1020" viewBox="0 0 1600 1020" role="img" aria-labelledby="title desc">
+  <title id="title">Local execution against pallets/flask</title>
+  <desc id="desc">Terminal output for the local pallets/flask risk analysis.</desc>
+  <rect width="1600" height="1020" rx="10" fill="#0d1117"/>
+  <rect width="1600" height="38" rx="10" fill="#24292f"/>
+  <circle cx="22" cy="19" r="6" fill="#ff5f56"/>
+  <circle cx="44" cy="19" r="6" fill="#ffbd2e"/>
+  <circle cx="66" cy="19" r="6" fill="#27c93f"/>
+  <text x="800" y="24" text-anchor="middle" fill="#8b949e" font-family="Segoe UI, sans-serif" font-size="13">PowerShell</text>
+  <text x="28" y="70" fill="#c9d1d9" font-family="Consolas, 'Cascadia Mono', monospace" font-size="14">
+    <tspan x="28" dy="0">(venv) PS D:\project-risk-agent-gemini\src&gt; python -m risk_agent.main --local --repo pallets/flask</tspan>
+    <tspan x="28" dy="21">{"timestamp":"2026-09-15T01:57:14+0530","level":"INFO","logger":"risk_agent","message":"Project risk analysis started","request_id":"94b585ea-1080-4c1f-ad2c-1386d8fc3140","service":"project-risk-agent","event":"analysis_started"}</tspan>
+    <tspan x="28" dy="21">{"timestamp":"2026-09-15T01:57:16+0530","level":"INFO","logger":"risk_agent","message":"Project risk analysis completed","request_id":"94b585ea-1080-4c1f-ad2c-1386d8fc3140","service":"project-risk-agent","event":"analysis_completed","repository":"pallets/flask","outcome":"On Track"}</tspan>
+    <tspan x="28" dy="21"># Project Risk Report — pallets/flask</tspan>
+    <tspan x="28" dy="21">**Date:** 2026-09-15</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">🔴 0 High Risk &amp;nbsp;&amp;nbsp; 🟡 0 Medium Risk &amp;nbsp;&amp;nbsp; 🟢 1 On Track</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">## Project Health</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">- **Posture:** On Track</tspan>
+    <tspan x="28" dy="21">- **Risk-bearing issues:** 0 of 1</tspan>
+    <tspan x="28" dy="21">- **Downstream issues exposed by risk:** 0</tspan>
+    <tspan x="28" dy="21">## Risk Trajectory</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">- **Project change:** Unchanged: On Track</tspan>
+    <tspan x="28" dy="21">- **New risks:** 0</tspan>
+    <tspan x="28" dy="21">- **Escalating:** 0</tspan>
+    <tspan x="28" dy="21">- **De-escalating:** 0</tspan>
+    <tspan x="28" dy="21">- **Persistent risks:** 0</tspan>
+    <tspan x="28" dy="21">- **Resolved risks:** 0</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">---</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">## 🟢 ON TRACK</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">1 issue(s) currently show no significant delivery risk:</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">- #6146 Add Cloudflare to Flask Hosting Platforms docs?</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">[Saved to risk_report.md]</tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21"></tspan>
+    <tspan x="28" dy="21">(venv) PS D:\project-risk-agent-gemini\src&gt;</tspan>
+  </text>
+</svg>
