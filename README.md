@@ -21,27 +21,42 @@ recommends decisions. It does not modify issues or reassign work.
 - Supports signed GitHub webhooks for event-driven re-analysis.
 - Emits structured logs and supports environment variables or AWS Secrets Manager.
 
-## How the agent works
+## Architecture
 
-The deterministic pipeline is the source of truth:
+Project Risk Agent separates deterministic project-risk analysis from AI-assisted executive explanation. The diagram shows the primary end-to-end path and the optional event, runtime, and persistence integrations.
 
-```text
-GitHub repository
-      |
-      v
-GitHub REST API -> issue/dependency parsing -> deterministic risk engine
-                                                   |
-                                                   v
-                                  history + decision support + Markdown report
-                                                   ^
-                                                   |
-                                  Strands tool call / Google Gemini reasoning
+```mermaid
+flowchart LR
+    GI[GitHub Issues] --> GT[GitHub Tool\nFetch + parse due dates/dependencies]
+    GT --> RE[Risk Engine\nScoring + dependency graph]
+    RE --> HI[History\nTrajectory comparison]
+    HI --> DS[Decision Support\nPriority, impact, consequence, next decision]
+    DS --> SA[Strands Agent\nTool call: risk report pipeline]
+    SA --> GG[Google Gemini\nExecutive reasoning]
+    GG --> FR[Final Markdown Report]
+
+    WH[GitHub Webhook\nSigned event] -. optional, not deployed .-> EH[Webhook/Event Handler]
+    EH -. triggers fresh analysis .-> GT
+    AC[Amazon Bedrock\nAgentCore Runtime] -. optional, not deployed .-> SA
+    FR -. optional, not deployed .-> S3[Amazon S3\nEncrypted report persistence]
+
+    classDef primary fill:#1f2937,stroke:#60a5fa,color:#fff;
+    classDef optional fill:#374151,stroke:#9ca3af,color:#fff,stroke-dasharray: 5 5;
+    class GI,GT,RE,HI,DS,SA,GG,FR primary;
+    class WH,EH,AC,S3 optional;
 ```
 
-**Strands** orchestrates the agent and exposes the report pipeline as a tool.
-**Gemini** adds the executive explanation; it does not replace the scoring
-rules. GitHub is the system of record. This separation keeps results
-reproducible and makes each risk understandable to a manager.
+### How it works
+
+1. **GitHub Issues** — The agent reads open issues from the selected authorized repository through the GitHub REST API. Pull requests returned by GitHub’s issues endpoint are excluded.
+2. **GitHub Tool** — `github_tool.py` paginates the API results, extracts due dates, and parses `blocks`, `blocked by`, and `depends on` relationships from issue bodies.
+3. **Risk Engine** — `risk_engine.py` applies deterministic High, Medium, and Low rules, builds a normalized dependency graph, calculates direct and transitive downstream impact, and propagates upstream risk.
+4. **History** — `history.py` compares the current project snapshot with bounded local history to identify new, escalating, persistent, de-escalating, and resolved risks.
+5. **Decision Support** — `decision_support.py` ranks risky issues and adds urgency, impact, consequence-of-inaction, and recommended-decision signals for managers.
+6. **Strands Agent** — The Strands agent calls the report pipeline as a tool, keeping deterministic findings separate from natural-language reasoning.
+7. **Google Gemini** — Gemini turns the tool output into an executive explanation covering the highest-priority risk, evidence, downstream impact, consequence of inaction, and best next decision.
+8. **Final Markdown Report** — The system produces a prioritized Markdown report containing project posture, bottleneck analysis, trajectory, decision focus, and issue-level findings.
+9. **Optional integrations** — Signed GitHub webhooks can trigger a fresh analysis, AgentCore can host the Strands entrypoint, and S3 can persist encrypted reports. These paths are implemented as supported integrations but are not deployed or live-verified in AWS.
 
 Risk levels are based on overdue status, dependency exposure, urgency, and
 propagated upstream risk:
@@ -136,16 +151,39 @@ git diff --check
 
 ```text
 project-risk-agent/
-├── README.md
-├── LICENSE
-├── requirements.txt
-├── requirements-agentcore.txt
-├── pytest.ini
+├── .gitignore                         # Excludes secrets, caches, and generated artifacts
+├── LICENSE                            # Defines the MIT license terms
+├── README.md                          # Documents the project, setup, and capabilities
+├── requirements.txt                   # Lists local runtime dependencies
+├── requirements-agentcore.txt         # Lists optional AgentCore runtime dependencies
+├── pytest.ini                         # Configures pytest import paths
 ├── config/
-├── src/risk_agent/
-├── tests/
+│   └── env.example                    # Provides local environment variable template
+├── deploy/
+│   ├── AGENTCORE.md                   # Documents optional AgentCore deployment workflow
+│   ├── SECURITY.md                    # Documents credentials, IAM, and webhook security
+│   ├── agentcore.env.example          # Provides AgentCore runtime configuration template
+│   └── iam-policy.json                # Provides narrow Secrets Manager IAM example
 ├── docs/
-└── deploy/
+│   └── architecture.md               # Explains system architecture and design boundaries
+├── src/
+│   └── risk_agent/
+│       ├── __init__.py                # Marks risk_agent as a Python package
+│       ├── main.py                    # Provides CLI modes and pipeline orchestration
+│       ├── agentcore_app.py           # Exposes the optional AgentCore runtime entrypoint
+│       ├── github_tool.py             # Fetches issues and parses dependencies
+│       ├── risk_engine.py             # Scores risks and builds dependency graphs
+│       ├── report.py                  # Renders analyzed risks as Markdown
+│       ├── history.py                 # Stores and compares risk snapshots
+│       ├── decision_support.py        # Adds prioritized manager decision signals
+│       ├── portfolio.py               # Analyzes and summarizes multiple repositories
+│       ├── webhook.py                 # Serves signed GitHub webhook requests
+│       ├── event_handler.py           # Validates webhook events and repositories
+│       ├── observability.py           # Emits structured logs and request IDs
+│       ├── security.py                # Resolves environment or AWS credentials
+│       └── storage.py                 # Optionally persists reports to S3
+└── tests/
+    └── test_risk_agent.py             # Tests fetching, scoring, reporting, and integrations
 ```
 
 The controlled payment-gateway repository `iamkk369/risk-agent-demo` is
