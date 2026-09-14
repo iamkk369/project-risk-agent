@@ -20,26 +20,66 @@ def fetch_open_issues(repo: str, token: str) -> list[dict]:
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github+json",
     }
-    params = {"state": "open", "per_page": 100}
-
-    response = requests.get(url, headers=headers, params=params, timeout=15)
-    response.raise_for_status()
-
-    raw_issues = response.json()
-
     issues = []
-    for item in raw_issues:
-        # Skip pull requests - GitHub's issues endpoint includes PRs too
-        if "pull_request" in item:
-            continue
+    page = 1
+    while True:
+        params = {"state": "open", "per_page": 100, "page": page}
 
-        body = item.get("body") or ""
-        issues.append({
-            "number": item["number"],
-            "title": item["title"],
-            "body": body,
-            "url": item["html_url"],
-        })
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+        except requests.exceptions.RequestException as exc:
+            raise RuntimeError(
+                f"Unable to fetch open issues from GitHub: {exc}"
+            ) from exc
+
+        if response.status_code in (403, 429):
+            reset_at = response.headers.get("X-RateLimit-Reset")
+            reset_message = f" Rate limit resets at {reset_at}." if reset_at else ""
+            raise RuntimeError(
+                f"GitHub API rate limit reached while fetching open issues "
+                f"(HTTP {response.status_code}).{reset_message}"
+            )
+
+        if response.status_code != 200:
+            details = response.text.strip()
+            if len(details) > 300:
+                details = f"{details[:297]}..."
+            detail_message = f": {details}" if details else ""
+            raise RuntimeError(
+                f"GitHub API returned HTTP {response.status_code} while "
+                f"fetching open issues{detail_message}"
+            )
+
+        try:
+            raw_issues = response.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"GitHub API returned invalid JSON while fetching open issues "
+                f"(page {page})."
+            ) from exc
+
+        if not isinstance(raw_issues, list):
+            raise RuntimeError(
+                f"GitHub API returned an unexpected response while fetching "
+                f"open issues (page {page})."
+            )
+
+        for item in raw_issues:
+            # Skip pull requests - GitHub's issues endpoint includes PRs too
+            if "pull_request" in item:
+                continue
+
+            body = item.get("body") or ""
+            issues.append({
+                "number": item["number"],
+                "title": item["title"],
+                "body": body,
+                "url": item["html_url"],
+            })
+
+        if len(raw_issues) < 100:
+            break
+        page += 1
 
     return issues
 
@@ -56,9 +96,19 @@ def parse_due_date(body: str) -> date | None:
 
 
 def parse_dependencies(body: str) -> dict:
-    """Extract 'blocks #N' and 'blocked by #N' references from issue body text."""
-    blocks = [int(n) for n in re.findall(r"blocks #(\d+)", body, re.IGNORECASE)]
-    blocked_by = [int(n) for n in re.findall(r"blocked by #(\d+)", body, re.IGNORECASE)]
+    """Extract unique blocking and blocked-by issue references."""
+    blocks_pattern = r"(?:blocks\s+#|blocks\s+issue\s+|blocking\s+#)(\d+)"
+    blocked_by_pattern = (
+        r"(?:blocked\s+by|blocked-by|depends\s+on|depends-on)\s+#(\d+)"
+    )
+
+    blocks = list(dict.fromkeys(
+        int(number) for number in re.findall(blocks_pattern, body, re.IGNORECASE)
+    ))
+    blocked_by = list(dict.fromkeys(
+        int(number)
+        for number in re.findall(blocked_by_pattern, body, re.IGNORECASE)
+    ))
     return {"blocks": blocks, "blocked_by": blocked_by}
 
 

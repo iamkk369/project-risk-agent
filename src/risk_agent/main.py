@@ -18,19 +18,24 @@ from .report import generate_report
 
 load_dotenv()
 
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO")
+
+def _get_runtime_config() -> tuple[str, str]:
+    """Read GitHub connection settings at runtime so tests and callers can update env vars."""
+    github_token = os.getenv("GITHUB_TOKEN")
+    github_repo = os.getenv("GITHUB_REPO")
+    if not github_token or not github_repo:
+        raise RuntimeError("Set GITHUB_TOKEN and GITHUB_REPO in your .env file.")
+    return github_token, github_repo
 
 
 def run_pipeline() -> str:
     """The core deterministic pipeline: fetch -> enrich -> score -> report."""
-    if not GITHUB_TOKEN or not GITHUB_REPO:
-        raise RuntimeError("Set GITHUB_TOKEN and GITHUB_REPO in your .env file.")
+    github_token, github_repo = _get_runtime_config()
 
-    issues = fetch_open_issues(GITHUB_REPO, GITHUB_TOKEN)
+    issues = fetch_open_issues(github_repo, github_token)
     issues = enrich_issues(issues)
     issues = analyze_all(issues)
-    report_md = generate_report(issues, GITHUB_REPO)
+    report_md = generate_report(issues, github_repo)
     return report_md
 
 
