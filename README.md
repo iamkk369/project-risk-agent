@@ -20,7 +20,6 @@ recommends decisions. It does not modify issues or reassign work.
 - Analyzes one repository or an independent portfolio of repositories.
 - Supports signed GitHub webhooks for event-driven re-analysis.
 - Emits structured logs and supports environment variables or AWS Secrets Manager.
-- Supports an AgentCore Runtime entrypoint and optional encrypted S3 report persistence; both are supported features, not yet deployed or verified in AWS.
 
 ## How the agent works
 
@@ -152,14 +151,6 @@ project-risk-agent/
 The controlled payment-gateway repository `iamkk369/risk-agent-demo` is
 retained only as a reproducible example/test data source. Project Risk Agent
 itself is repository-agnostic.
-
-## Current deployment status
-
-Local deterministic, Strands/Gemini, portfolio, webhook, security, logging,
-AgentCore-compatible entrypoint, and optional S3 persistence paths are implemented.
-AgentCore and S3 support are optional capabilities and remain not yet deployed
-or verified in AWS; they require environment-specific AWS configuration before
-use in a live environment.
 
 ## License
 

@@ -2,9 +2,9 @@
 Project Risk Agent - main entry point.
 
 Two ways to run this:
-1. python main.py --local   -> runs the deterministic pipeline directly.
-2. python main.py           -> runs it through the Strands Agent + Gemini,
-                                so the model adds the executive reasoning pass.
+1. python -m src.risk_agent.main --local -> runs the deterministic pipeline directly.
+2. python -m src.risk_agent.main         -> runs it through the Strands Agent + Gemini,
+                                            so the model adds the executive reasoning pass.
 """
 import os
 import argparse
@@ -89,9 +89,9 @@ def _analyze_project_for_portfolio(repo: str) -> list[dict]:
     issues = enrich_issues(issues)
     return analyze_all(issues)
 
-def run_local():
+def run_local(repo: str | None = None):
     """Run the deterministic pipeline directly and print the report. No Strands agent call."""
-    report_md = run_pipeline()
+    report_md = run_pipeline(repo)
     print(report_md)
 
     with open("risk_report.md", "w", encoding="utf-8") as f:
@@ -156,6 +156,6 @@ if __name__ == "__main__":
         with open("portfolio_risk_report.md", "w", encoding="utf-8") as f:
             f.write(report)
     elif args.local:
-        run_local()
+        run_local(args.repo)
     else:
         run_with_agent(args.repo)

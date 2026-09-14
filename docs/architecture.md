@@ -53,20 +53,15 @@ The agent correctly identifies that #1 being overdue is the root cause putting t
 1. **Fetch** — `src/risk_agent/github_tool.py` calls the GitHub REST API for all open issues in the selected repository (PRs are filtered out).
 2. **Parse** — Each issue body is scanned for `Due: YYYY-MM-DD`, `blocks #N`, and `blocked by #N` patterns using regex. This keeps the integration portable across authorized GitHub repositories without requiring GitHub Projects APIs.
 3. **Score** — `src/risk_agent/risk_engine.py` applies the rule table (see README) to every issue, using a lookup of all issues by number to resolve what each issue blocks.
-4. **Report** — `report.generate_report()` groups issues into High / Medium / Low sections, each with the due date, a plain-English reason, and a recommended next step.
-5. **Project intelligence** — `risk_engine.summarize_project_risk()` aggregates issue-level results into project posture, risk-bearing issue count, downstream exposure, and the primary bottleneck.
-6. **Report** — `report.generate_report()` surfaces the project-level health summary before the detailed High / Medium / On Track sections.
+4. **Project report and intelligence** — `risk_engine.summarize_project_risk()` aggregates issue-level results into project posture, risk-bearing issue count, downstream exposure, and the primary bottleneck. `report.generate_report()` surfaces that project-level health summary, then groups issues into High / Medium / Low sections with the due date, a plain-English reason, and a recommended next step.
 7. **Agent layer** — `main.run_with_agent()` exposes the whole pipeline as a single Strands `@tool`, then asks the agent (running on Google Gemini) to call it and add decision-support reasoning before the full report.
 8. **Event-driven trigger** — `event_handler.py` validates supported GitHub repository events and `webhook.py` verifies GitHub's HMAC SHA-256 signature, acknowledges valid events quickly, and triggers a fresh analysis in a background worker. The worker re-fetches GitHub state instead of treating the webhook payload as the authoritative project snapshot.
-9. **AgentCore runtime** — `agentcore_app.py` exposes the existing Strands + Gemini agent through the AgentCore-compatible runtime boundary. AgentCore is a supported runtime option, not a deployed AWS runtime in this repository; the deterministic risk pipeline remains provider-neutral and is not rewritten around AWS-specific logic.
+9. **AgentCore runtime** — `agentcore_app.py` exposes the existing Strands + Gemini agent through the optional AgentCore-compatible runtime boundary; see the single AgentCore Runtime Support section below for deployment status and configuration.
 
-## Current Dependency Intelligence
+## Dependency and Project Intelligence
 
 The risk engine normalizes both `blocks` and `blocked by` relationships into a directed dependency graph. It calculates direct/transitive downstream impact, dependency-chain depth, and upstream blockers before applying risk rules. The strongest upstream risk is propagated through the graph, so a root bottleneck can affect downstream work even when the downstream issue itself is not overdue.
-
-## Current Project Intelligence
-
-The risk engine now reasons over a normalized dependency graph rather than only direct `blocks` lists. It accepts both `blocks #N` and `blocked by #N` expressions, calculates transitive downstream exposure and dependency-chain depth, propagates the strongest upstream risk through the graph, and derives a project-level posture and primary bottleneck.
+It derives project-level posture, risk-bearing issue count, downstream exposure, and the primary bottleneck from that same normalized graph.
 
 ## AgentCore Runtime Support
 
