@@ -1,0 +1,7 @@
+# P6 AWS runtime dependencies
+bedrock-agentcore
+strands-agents[gemini]
+strands-agents-tools
+boto3
+requests
+python-dotenv

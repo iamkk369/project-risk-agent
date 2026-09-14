@@ -16,7 +16,7 @@ Engineering managers, tech leads, and small dev teams who track work in GitHub I
 
 ## Why It Matters
 
-The agent doesn't just summarize the project — it **investigates** it. It reads every open issue, figures out what's overdue, traces which issues block which, and reasons about *why* a delay matters before recommending what to do next. That's the difference between a status report and a risk report.
+The agent doesn't just summarize the project — it **investigates** it. It reads every open issue, traces dependency relationships in both directions, measures downstream impact and dependency-chain depth, identifies cascading risk, determines overall project health and the primary bottleneck, and reasons about *why* a delay matters before recommending what to do next. That's the difference between a status report and a risk report.
 
 ---
 
@@ -40,8 +40,8 @@ GitHub Issues (open, with due dates + "blocks #N" / "blocked by #N" references)
 └─────────┬──────────┘
           ▼
 ┌───────────────────┐
-│  Markdown Report   │  prioritized: High → Medium → On Track,
-│                    │  each with evidence + recommended action
+│  Markdown Report   │  project health + bottleneck + prioritized
+│                    │  issues, evidence + recommended action
 └───────────────────┘
 ```
 
@@ -53,8 +53,8 @@ Every issue gets a risk level with a **plain-English reason** — no opaque ML m
 
 | Level | Condition |
 |---|---|
-| 🔴 High | Overdue **and** blocks other open issues |
-| 🟡 Medium | Overdue but isolated, **or** on-time but blocks 2+ issues, **or** due very soon and blocks something |
+| 🔴 High | Overdue and has downstream impact on other open issues |
+| 🟡 Medium | Overdue but isolated, **or** has multi-issue downstream impact, **or** due very soon and blocks something |
 | 🟢 Low | On track, no meaningful dependency risk |
 
 ---
@@ -126,10 +126,15 @@ This makes the demo reproducible: run it against the same repo and you'll see th
 
 ```
 ├── src/risk_agent/    # Application package
-│   ├── main.py        # Entry point — wires everything together
-│   ├── github_tool.py # Fetches + parses GitHub issues
-│   ├── risk_engine.py # Rule-based risk scoring
-│   └── report.py      # Markdown report generation
+│   ├── main.py           # Entry point — manual, local, and webhook modes
+│   ├── github_tool.py    # Fetches + parses GitHub issues
+│   ├── risk_engine.py    # Dependency graph + explainable risk scoring
+│   ├── history.py        # Risk trajectory comparison
+│   ├── decision_support.py # Manager decision prioritization
+│   ├── event_handler.py  # Event filtering and repository validation
+│   ├── webhook.py        # Signed GitHub webhook listener
+│   ├── report.py         # Markdown report generation
+│   └── storage.py        # Optional S3 report persistence
 ├── config/
 │   └── env.example    # Safe configuration template
 ├── docs/
@@ -138,6 +143,12 @@ This makes the demo reproducible: run it against the same repo and you'll see th
 └── .gitignore
 ```
 
+## AWS Runtime Deployment
+
+The project can be hosted as a Strands agent on **Amazon Bedrock AgentCore Runtime** while continuing to use Google Gemini as the model provider. AgentCore supports Strands and external foundation models, including Gemini, so AWS runtime adoption does not require a model-provider rewrite.
+
+The AgentCore entrypoint is `src/risk_agent/agentcore_app.py`. Deployment instructions are in [`deploy/AGENTCORE.md`](./deploy/AGENTCORE.md). The P6 deployment path uses CodeZip rather than adding Docker, Lambda, Fargate, RDS, Redis, or API Gateway without a concrete need.
+
 ## What's Out of Scope (for this MVP)
 
 Multi-agent orchestration, Jira/Linear integration, Slack notifications, automatic task modification, and a web dashboard were deliberately left out to keep the agent's core reasoning solid and demo-ready within the hackathon timeline. See `architecture.md` for future directions.
@@ -145,3 +156,32 @@ Multi-agent orchestration, Jira/Linear integration, Slack notifications, automat
 ## License
 
 MIT
+
+### Risk trajectory
+Each successful analysis can retain a local, bounded history in `.risk_history.json` (configurable with `RISK_HISTORY_FILE`). The report compares the current state with the previous snapshot and identifies new, escalating, de-escalating, persistent, and resolved risks. This is intentionally provider-neutral so the history store can later move to durable AWS storage without changing the risk-analysis contract.
+
+## Event-Driven Execution
+
+The agent can also run from GitHub repository events instead of only a manual command. A signed GitHub webhook for issue, push, or pull-request changes triggers a fresh repository analysis in a background worker. The webhook layer acknowledges the delivery quickly and the analysis re-fetches the repository as the source of truth rather than trusting partial event payloads.
+
+```bash
+python -m src.risk_agent.main --webhook
+```
+
+Configure `GITHUB_WEBHOOK_SECRET` and `GITHUB_REPO`. The local listener exposes `POST /webhook/github` and `GET /healthz`. The event handler is intentionally separated from the HTTP server so the same trigger contract can be reused by a future AWS event/runtime deployment.
+
+## Multi-project portfolio mode
+
+Set `PROJECT_REPOS` to a comma-separated list of GitHub `owner/repository` values and run:
+
+```bash
+python -m src.risk_agent.main --portfolio
+```
+
+Each repository is analyzed independently using the same deterministic risk engine. The portfolio layer then ranks projects by overall posture and delivery exposure without mixing issue IDs between repositories. The generated `portfolio_risk_report.md` is local and ignored by Git.
+
+## S3 Report Persistence
+
+S3 persistence is optional. When `S3_REPORT_BUCKET` is configured, each successful project risk report is stored as a Markdown object under `S3_REPORT_PREFIX/<owner-repo>/` using server-side encryption (AES-256). Local report generation continues to work when no bucket is configured.
+
+The S3 layer is intentionally isolated in `src/risk_agent/storage.py`, so cloud storage does not change the deterministic risk-analysis contract.

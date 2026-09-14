@@ -2,7 +2,6 @@
 GitHub Issues fetcher - pulls open issues with their body text
 so we can later parse due dates and dependencies out of them.
 """
-import os
 import re
 import requests
 from datetime import datetime, date
@@ -32,12 +31,22 @@ def fetch_open_issues(repo: str, token: str) -> list[dict]:
                 f"Unable to fetch open issues from GitHub: {exc}"
             ) from exc
 
-        if response.status_code in (403, 429):
+        if response.status_code == 429:
             reset_at = response.headers.get("X-RateLimit-Reset")
             reset_message = f" Rate limit resets at {reset_at}." if reset_at else ""
             raise RuntimeError(
                 f"GitHub API rate limit reached while fetching open issues "
-                f"(HTTP {response.status_code}).{reset_message}"
+                f"(HTTP 429).{reset_message}"
+            )
+
+        if response.status_code == 403:
+            details = response.text.strip()
+            if len(details) > 300:
+                details = f"{details[:297]}..."
+            detail_message = f": {details}" if details else ""
+            raise RuntimeError(
+                "GitHub API denied access while fetching open issues "
+                f"(HTTP 403){detail_message}. Check token permissions and repository access."
             )
 
         if response.status_code != 200:

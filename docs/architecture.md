@@ -4,11 +4,15 @@
 
 ```mermaid
 flowchart TD
-    A[GitHub Repository<br/>Open Issues] -->|REST API| B[GitHub Tool<br/>src/risk_agent/github_tool.py]
+    A[GitHub Repository] -->|REST API| B[GitHub Tool<br/>src/risk_agent/github_tool.py]
+    A -->|Signed webhook event| W[Webhook/Event Handler<br/>src/risk_agent/event_handler.py]
+    W -->|Trigger fresh analysis| B
+    W -.->|Cloud deployment boundary| AC[Amazon Bedrock AgentCore Runtime]
+    AC --> F
     B -->|"parse due dates<br/>parse blocks / blocked-by"| C[Enriched Issues]
     C --> D[Risk Engine<br/>src/risk_agent/risk_engine.py]
-    D -->|"rule-based scoring<br/>High / Medium / Low"| E[Scored Issues]
-    E --> F[Strands Agent<br/>+ Amazon Bedrock]
+    D -->|"dependency graph +<br/>risk scoring"| E[Scored Issues]
+    E --> F[Strands Agent<br/>+ Google Gemini]
     F -->|"tool call: get_project_risk_report"| G[Report Generator<br/>src/risk_agent/report.py]
     G --> H[Prioritized Markdown Report]
     F -->|"adds executive summary"| H
@@ -50,13 +54,41 @@ The agent correctly identifies that #1 being overdue is the root cause putting t
 2. **Parse** — Each issue body is scanned for `Due: YYYY-MM-DD`, `blocks #N`, and `blocked by #N` patterns using regex. This is a deliberate MVP shortcut: it works reliably against a controlled demo repo without needing GitHub's more complex Projects/dependency APIs.
 3. **Score** — `src/risk_agent/risk_engine.py` applies the rule table (see README) to every issue, using a lookup of all issues by number to resolve what each issue blocks.
 4. **Report** — `report.generate_report()` groups issues into High / Medium / Low sections, each with the due date, a plain-English reason, and a recommended next step.
-5. **Agent layer** — `main.run_with_agent()` exposes the whole pipeline as a single Strands `@tool`, then asks the agent (running on Amazon Bedrock, Claude) to call it and add a short executive summary before the full report.
+5. **Project intelligence** — `risk_engine.summarize_project_risk()` aggregates issue-level results into project posture, risk-bearing issue count, downstream exposure, and the primary bottleneck.
+6. **Report** — `report.generate_report()` surfaces the project-level health summary before the detailed High / Medium / On Track sections.
+7. **Agent layer** — `main.run_with_agent()` exposes the whole pipeline as a single Strands `@tool`, then asks the agent (running on Google Gemini) to call it and add decision-support reasoning before the full report.
+8. **Event-driven trigger** — `event_handler.py` validates supported GitHub repository events and `webhook.py` verifies GitHub's HMAC SHA-256 signature, acknowledges valid events quickly, and triggers a fresh analysis in a background worker. The worker re-fetches GitHub state instead of treating the webhook payload as the authoritative project snapshot.
+9. **AWS runtime** — `agentcore_app.py` exposes the existing Strands + Gemini agent through Amazon Bedrock AgentCore Runtime. AgentCore is used as the managed runtime/deployment boundary; the deterministic risk pipeline remains provider-neutral and is not rewritten around AWS-specific logic.
+
+## Current Dependency Intelligence
+
+The risk engine normalizes both `blocks` and `blocked by` relationships into a directed dependency graph. It calculates direct/transitive downstream impact, dependency-chain depth, and upstream blockers before applying risk rules. The strongest upstream risk is propagated through the graph, so a root bottleneck can affect downstream work even when the downstream issue itself is not overdue.
+
+## Current Project Intelligence
+
+The risk engine now reasons over a normalized dependency graph rather than only direct `blocks` lists. It accepts both `blocks #N` and `blocked by #N` expressions, calculates transitive downstream exposure and dependency-chain depth, propagates the strongest upstream risk through the graph, and derives a project-level posture and primary bottleneck.
+
+## AWS Runtime Deployment
+
+P6 adds an Amazon Bedrock AgentCore Runtime adapter in `src/risk_agent/agentcore_app.py`. The adapter accepts an invocation payload, runs the same Strands agent and `get_project_risk_report` tool used locally, and returns the agent response. AgentCore supports Strands and external model providers including Google Gemini, so this deployment does not require switching the project from Gemini to Bedrock.
+
+The repository includes `deploy/AGENTCORE.md` with the deployment procedure. CodeZip is preferred for this time-constrained project because it avoids requiring Docker.
+
+The deployment boundary is intentionally limited to AgentCore Runtime. Lambda, Fargate, RDS, Redis, and API Gateway are not added merely for service count. Durable risk-history storage remains a later concern.
+
+## Event-Driven Execution
+
+The current implementation includes a dependency-light local webhook listener as the event-driven boundary. Supported repository changes include issue updates, pushes, and pull-request changes. Only signed events for the configured repository can trigger analysis. The event handler is separated from the HTTP transport so the same semantic trigger can be reused by a future AWS runtime without changing the risk engine.
 
 ## Future Directions (Out of Scope for MVP)
 
 - Native GitHub Projects dependency graph instead of regex-based `blocks #N` parsing
-- Transitive risk propagation (if issue A is blocked by an overdue issue, A should inherit some risk even if A itself isn't overdue)
 - Multi-source input (Jira, Linear) alongside GitHub
 - Slack/email delivery of the report
 - Human-approved automated actions (e.g., agent drafts a Slack message, human approves and sends)
-- Deployment via Amazon Bedrock AgentCore
+- Durable cloud history storage (S3/DynamoDB) if justified after runtime deployment
+- Multi-project portfolio analysis
+
+## Portfolio analysis
+
+The optional portfolio layer reuses the same per-repository risk analysis for multiple GitHub repositories. Each repository remains an independent analysis boundary; only project-level summaries are aggregated. Portfolio posture is Critical when any project is Critical, otherwise Watch when any project is Watch, otherwise On Track. Priority projects are ranked using posture, High-risk count, downstream exposure, and bottleneck impact.
