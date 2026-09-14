@@ -22,12 +22,20 @@ def get_secret(secret_arn: str) -> str:
     """Read one plaintext or JSON-wrapped secret from Secrets Manager."""
     try:
         import boto3
-        from botocore.exceptions import BotoCoreError, ClientError
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("AWS Secrets Manager support requires boto3.") from exc
 
+    try:
+        from botocore.exceptions import BotoCoreError, ClientError
+    except ModuleNotFoundError:
         client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION"))
         response = client.get_secret_value(SecretId=secret_arn)
-    except (BotoCoreError, ClientError) as exc:
-        raise RuntimeError("Unable to retrieve configured AWS secret.") from exc
+    else:
+        try:
+            client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION"))
+            response = client.get_secret_value(SecretId=secret_arn)
+        except (BotoCoreError, ClientError) as exc:
+            raise RuntimeError("Unable to retrieve configured AWS secret.") from exc
 
     value = response.get("SecretString")
     if value is None:

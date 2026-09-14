@@ -1,187 +1,166 @@
-# 🚨 Project Risk Agent
+# Project Risk Agent
 
-An AI agent built with **Strands Agents SDK** that investigates a project's open GitHub issues — deadlines, dependencies, and status — and produces a prioritized, action-oriented risk report for the team.
+Project Risk Agent analyzes authorized GitHub repositories and turns open issue
+data into an explainable delivery-risk report. It helps engineering managers,
+tech leads, and delivery teams find bottlenecks before a delayed task cascades
+into missed milestones.
 
-Built for the **AWS Agents for Humans Hackathon 2026** — Professional Agents track.
+The product is read-only: it fetches GitHub issues, evaluates risk, and
+recommends decisions. It does not modify issues or reassign work.
 
----
+## What it does
 
-## The Problem
+- Fetches all open GitHub issues with pagination and excludes pull requests.
+- Parses due dates plus `blocks #N` and `blocked by #N` relationships.
+- Scores issues with deterministic, auditable rules rather than opaque ML.
+- Propagates dependency risk through direct and transitive downstream impact.
+- Produces project posture, bottleneck, affected-issue, and dependency-chain summaries.
+- Adds decision support with evidence, consequence of inaction, and a next step.
+- Compares the current report with bounded local history to show trajectory.
+- Analyzes one repository or an independent portfolio of repositories.
+- Supports signed GitHub webhooks for event-driven re-analysis.
+- Emits structured logs and supports environment variables or AWS Secrets Manager.
+- Supports an AgentCore Runtime entrypoint and optional encrypted S3 report persistence; both are supported features, not yet deployed or verified in AWS.
 
-Project teams already have all the information they need buried in tools like GitHub: tasks, deadlines, and dependencies. But nobody has time to manually trace how one delayed task cascades into missed milestones. A small delay in one issue can silently block two, three, or more downstream tasks — and by the time someone notices, the damage is done.
+## How the agent works
 
-## Who It's For
+The deterministic pipeline is the source of truth:
 
-Engineering managers, tech leads, and small dev teams who track work in GitHub Issues and want an early warning system for delivery risk — without adding another dashboard to check manually.
-
-## Why It Matters
-
-The agent doesn't just summarize the project — it **investigates** it. It reads every open issue, traces dependency relationships in both directions, measures downstream impact and dependency-chain depth, identifies cascading risk, determines overall project health and the primary bottleneck, and reasons about *why* a delay matters before recommending what to do next. That's the difference between a status report and a risk report.
-
----
-
-## How It Works
-
-```
-GitHub Issues (open, with due dates + "blocks #N" / "blocked by #N" references)
-        │
-        ▼
-┌───────────────────┐
-│   GitHub Tool      │  fetches issues, parses due dates & dependencies
-└─────────┬──────────┘
-          ▼
-┌───────────────────┐
-│   Risk Engine      │  explainable, rule-based scoring (not a black box)
-└─────────┬──────────┘
-          ▼
-┌───────────────────┐
-│  Strands Agent     │  wraps the pipeline as a tool, adds an executive
-│  (Google Gemini)   │  summary on top for the reader
-└─────────┬──────────┘
-          ▼
-┌───────────────────┐
-│  Markdown Report   │  project health + bottleneck + prioritized
-│                    │  issues, evidence + recommended action
-└───────────────────┘
+```text
+GitHub repository
+      |
+      v
+GitHub REST API -> issue/dependency parsing -> deterministic risk engine
+                                                   |
+                                                   v
+                                  history + decision support + Markdown report
+                                                   ^
+                                                   |
+                                  Strands tool call / Google Gemini reasoning
 ```
 
-See [`docs/architecture.md`](./docs/architecture.md) for the full diagram.
+**Strands** orchestrates the agent and exposes the report pipeline as a tool.
+**Gemini** adds the executive explanation; it does not replace the scoring
+rules. GitHub is the system of record. This separation keeps results
+reproducible and makes each risk understandable to a manager.
 
-### Risk Scoring Logic
+Risk levels are based on overdue status, dependency exposure, urgency, and
+propagated upstream risk:
 
-Every issue gets a risk level with a **plain-English reason** — no opaque ML model:
+| Level | Meaning |
+| --- | --- |
+| High | Overdue work with downstream impact, or equivalent propagated risk |
+| Medium | Isolated overdue work, meaningful downstream exposure, or an urgent blocker |
+| Low | On track with no meaningful dependency risk |
 
-| Level | Condition |
-|---|---|
-| 🔴 High | Overdue and has downstream impact on other open issues |
-| 🟡 Medium | Overdue but isolated, **or** has multi-issue downstream impact, **or** due very soon and blocks something |
-| 🟢 Low | On track, no meaningful dependency risk |
+## Single-project and portfolio modes
 
----
-
-## Setup
-
-### 1. Clone and install
+Set `GITHUB_REPO=owner/repository` for the default target, or provide an
+explicit repository to the agent-backed CLI:
 
 ```bash
-git clone https://github.com/iamkk369/risk-agent-demo.git
-cd risk-agent-demo
-python -m venv venv
-venv\Scripts\activate        # Windows
-# source venv/bin/activate   # macOS/Linux
-
-pip install -r requirements.txt
+python -m src.risk_agent.main --local --repo owner/repository
+python -m src.risk_agent.main --repo owner/repository
 ```
 
-### 2. Configure environment
-
-Copy `config/env.example` to `.env` and fill in:
-
-```
-GITHUB_TOKEN=your_github_personal_access_token
-GITHUB_REPO=owner/repo-name
-GEMINI_API_KEY=your_gemini_api_key
-```
-
-Your GitHub token needs `repo` scope to read issues.
-
-### 3. Gemini API key (for the full agent run)
-
-Set your Gemini API key in the environment as `GEMINI_API_KEY` so the Strands agent can call the Gemini model for the executive summary step.
-
-### 4. Run it
-
-```bash
-# Full run — Strands Agent + Gemini (adds an executive summary)
-python -m src.risk_agent.main
-
-# Local run — pipeline only, no Gemini needed (useful for testing)
-python -m src.risk_agent.main --local
-```
-
-The report prints to the terminal and saves to `risk_report.md`.
-
----
-
-## Demo Repo
-
-This project ships with a small demo repository (`risk-agent-demo`) containing 8 issues that simulate a realistic "Payment Gateway Migration" project, deliberately seeded with:
-- One overdue task blocking two others (→ High Risk cascade)
-- One near-deadline task blocking downstream QA (→ Medium Risk)
-- Several on-track, independent tasks (→ Low Risk)
-
-This makes the demo reproducible: run it against the same repo and you'll see the same risk chain every time.
-
----
-
-## Tech Stack
-
-- **Python 3.14**
-- **Strands Agents SDK** — agent framework and tool orchestration
-- **Google Gemini** — model provider for the agent's reasoning layer
-- **GitHub REST API** — project data source
-- Deterministic Python risk-scoring engine (no ML — every score is explainable)
-
-## Project Structure
-
-```
-├── src/risk_agent/    # Application package
-│   ├── main.py           # Entry point — manual, local, and webhook modes
-│   ├── github_tool.py    # Fetches + parses GitHub issues
-│   ├── risk_engine.py    # Dependency graph + explainable risk scoring
-│   ├── history.py        # Risk trajectory comparison
-│   ├── decision_support.py # Manager decision prioritization
-│   ├── event_handler.py  # Event filtering and repository validation
-│   ├── webhook.py        # Signed GitHub webhook listener
-│   ├── report.py         # Markdown report generation
-│   └── storage.py        # Optional S3 report persistence
-├── config/
-│   └── env.example    # Safe configuration template
-├── docs/
-│   └── architecture.md
-├── requirements.txt
-└── .gitignore
-```
-
-## AWS Runtime Deployment
-
-The project can be hosted as a Strands agent on **Amazon Bedrock AgentCore Runtime** while continuing to use Google Gemini as the model provider. AgentCore supports Strands and external foundation models, including Gemini, so AWS runtime adoption does not require a model-provider rewrite.
-
-The AgentCore entrypoint is `src/risk_agent/agentcore_app.py`. Deployment instructions are in [`deploy/AGENTCORE.md`](./deploy/AGENTCORE.md). The P6 deployment path uses CodeZip rather than adding Docker, Lambda, Fargate, RDS, Redis, or API Gateway without a concrete need.
-
-## What's Out of Scope (for this MVP)
-
-Multi-agent orchestration, Jira/Linear integration, Slack notifications, automatic task modification, and a web dashboard were deliberately left out to keep the agent's core reasoning solid and demo-ready within the hackathon timeline. See `architecture.md` for future directions.
-
-## License
-
-MIT
-
-### Risk trajectory
-Each successful analysis can retain a local, bounded history in `.risk_history.json` (configurable with `RISK_HISTORY_FILE`). The report compares the current state with the previous snapshot and identifies new, escalating, de-escalating, persistent, and resolved risks. This is intentionally provider-neutral so the history store can later move to durable AWS storage without changing the risk-analysis contract.
-
-## Event-Driven Execution
-
-The agent can also run from GitHub repository events instead of only a manual command. A signed GitHub webhook for issue, push, or pull-request changes triggers a fresh repository analysis in a background worker. The webhook layer acknowledges the delivery quickly and the analysis re-fetches the repository as the source of truth rather than trusting partial event payloads.
-
-```bash
-python -m src.risk_agent.main --webhook
-```
-
-Configure `GITHUB_WEBHOOK_SECRET` and `GITHUB_REPO`. The local listener exposes `POST /webhook/github` and `GET /healthz`. The event handler is intentionally separated from the HTTP server so the same trigger contract can be reused by a future AWS event/runtime deployment.
-
-## Multi-project portfolio mode
-
-Set `PROJECT_REPOS` to a comma-separated list of GitHub `owner/repository` values and run:
+For independent portfolio analysis, set `PROJECT_REPOS` to a comma-separated
+list and run:
 
 ```bash
 python -m src.risk_agent.main --portfolio
 ```
 
-Each repository is analyzed independently using the same deterministic risk engine. The portfolio layer then ranks projects by overall posture and delivery exposure without mixing issue IDs between repositories. The generated `portfolio_risk_report.md` is local and ignored by Git.
+Issue numbers and history remain scoped to each repository.
 
-## S3 Report Persistence
+## Event-driven execution
 
-S3 persistence is optional. When `S3_REPORT_BUCKET` is configured, each successful project risk report is stored as a Markdown object under `S3_REPORT_PREFIX/<owner-repo>/` using server-side encryption (AES-256). Local report generation continues to work when no bucket is configured.
+The local webhook listener verifies GitHub's HMAC SHA-256 signature, accepts
+issue, push, and pull-request change events for the configured repository, and
+starts a fresh analysis in the background:
 
-The S3 layer is intentionally isolated in `src/risk_agent/storage.py`, so cloud storage does not change the deterministic risk-analysis contract.
+```bash
+python -m src.risk_agent.main --webhook
+```
+
+The listener exposes `POST /webhook/github` and `GET /healthz`.
+
+## AgentCore and S3
+
+`src/risk_agent/agentcore_app.py` is an optional Amazon Bedrock AgentCore
+Runtime entrypoint for the same Strands + Gemini workflow. It accepts an
+optional `repository` invocation field and is AgentCore-compatible for future
+AWS deployment, but this repository does not claim that it has been deployed
+or verified in AWS.
+
+When `S3_REPORT_BUCKET` is configured in a running AWS environment, the
+code path supports persisting encrypted Markdown objects under
+`S3_REPORT_PREFIX/<owner-repository>/`. S3 support is implemented, but no
+AWS deployment or live verification is claimed.
+
+See [`deploy/AGENTCORE.md`](./deploy/AGENTCORE.md) and
+[`deploy/SECURITY.md`](./deploy/SECURITY.md) for deployment and credential
+guidance.
+
+## Local setup
+
+```bash
+git clone <repository-url>
+cd <repository-directory>
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # macOS/Linux
+pip install -r requirements.txt
+```
+
+Copy `config/env.example` to `.env` and set:
+
+```text
+GITHUB_TOKEN=your_github_token
+GITHUB_REPO=owner/repository
+GEMINI_API_KEY=your_gemini_api_key
+```
+
+The token must be authorized to read issues in the selected repositories.
+`GEMINI_API_KEY` is required only for the Strands/Gemini run; `--local` runs
+the deterministic pipeline without it. Optional settings cover webhooks,
+history, logging, Secrets Manager, portfolio mode, and S3.
+
+## Testing
+
+```bash
+python -m pytest -q
+python -m compileall src tests
+git diff --check
+```
+
+## Project structure
+
+```text
+project-risk-agent/
+├── README.md
+├── LICENSE
+├── requirements.txt
+├── requirements-agentcore.txt
+├── pytest.ini
+├── config/
+├── src/risk_agent/
+├── tests/
+├── docs/
+└── deploy/
+```
+
+The controlled payment-gateway repository `iamkk369/risk-agent-demo` is
+retained only as a reproducible example/test data source. Project Risk Agent
+itself is repository-agnostic.
+
+## Current deployment status
+
+Local deterministic, Strands/Gemini, portfolio, webhook, security, logging,
+AgentCore-compatible entrypoint, and optional S3 persistence paths are implemented.
+AgentCore and S3 support are optional capabilities and remain not yet deployed
+or verified in AWS; they require environment-specific AWS configuration before
+use in a live environment.
+
+## License
+
+MIT

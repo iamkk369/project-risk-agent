@@ -9,8 +9,22 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
+try:
+    import boto3
+except ModuleNotFoundError:
+    class _MissingBoto3:
+        def client(self, *_args, **_kwargs):
+            raise RuntimeError("S3 persistence requires boto3.")
+
+    boto3 = _MissingBoto3()
+
+try:
+    from botocore.exceptions import BotoCoreError, ClientError
+except ModuleNotFoundError:
+    class _MissingBotocoreError(Exception):
+        pass
+
+    BotoCoreError = ClientError = _MissingBotocoreError
 
 
 def _safe_repo_key(repo: str) -> str:

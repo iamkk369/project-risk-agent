@@ -1,13 +1,13 @@
 # Security, IAM and Observability
 
-P7 hardens the AWS runtime without changing the risk-analysis model.
+This document describes the supported AWS runtime security boundary without changing the risk-analysis model; it does not claim that any AWS runtime has been deployed.
 
 ## Credential boundary
 
 Credentials are never committed to source control. The runtime supports either:
 
 1. environment-injected values for local development, or
-2. AWS Secrets Manager ARNs for deployed execution.
+2. AWS Secrets Manager ARNs for AgentCore-supported execution in a provisioned AWS environment.
 
 Configure these optional ARN variables when using Secrets Manager:
 
@@ -46,6 +46,6 @@ verification and a configured `GITHUB_WEBHOOK_SECRET`.
 
 ## Production boundary
 
-P7 does not add a database, cache, public API gateway, or broad network access.
+The project does not add a database, cache, public API gateway, or broad network access.
 The agent remains read-only against GitHub for risk analysis and does not
 silently mutate project data.

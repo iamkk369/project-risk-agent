@@ -25,13 +25,20 @@ configure_logging()
 load_dotenv()
 
 
-def _get_runtime_config() -> tuple[str, str]:
-    """Read GitHub connection settings at runtime so tests and callers can update env vars."""
+def _get_github_token() -> str:
+    """Read the GitHub credential at runtime."""
     github_token = get_credential("GITHUB_TOKEN", "GITHUB_TOKEN_SECRET_ARN")
+    if not github_token:
+        raise RuntimeError("Set GITHUB_TOKEN in your .env file.")
+    return github_token
+
+
+def _get_runtime_config() -> tuple[str, str]:
+    """Read the default single-repository settings at runtime."""
     github_repo = os.getenv("GITHUB_REPO")
-    if not github_token or not github_repo:
-        raise RuntimeError("Set GITHUB_TOKEN and GITHUB_REPO in your .env file.")
-    return github_token, github_repo
+    if not github_repo:
+        raise RuntimeError("Set GITHUB_REPO to an owner/repository value.")
+    return _get_github_token(), github_repo
 
 
 def run_pipeline(repo: str | None = None) -> str:
@@ -77,7 +84,7 @@ def run_portfolio() -> str:
 
 def _analyze_project_for_portfolio(repo: str) -> list[dict]:
     """Run deterministic analysis for one repository without writing its report."""
-    github_token, _ = _get_runtime_config()
+    github_token = _get_github_token()
     issues = fetch_open_issues(repo, github_token)
     issues = enrich_issues(issues)
     return analyze_all(issues)
@@ -92,7 +99,7 @@ def run_local():
     print("\n\n[Saved to risk_report.md]")
 
 
-def run_with_agent():
+def run_with_agent(repo: str | None = None):
     """
     Run the pipeline through a Strands Agent so the model can add executive
     reasoning on top of the deterministic report.
@@ -103,7 +110,7 @@ def run_with_agent():
     @tool
     def get_project_risk_report() -> str:
         """Fetch GitHub issues, analyze deadlines/dependencies, and return a risk report."""
-        return run_pipeline()
+        return run_pipeline(repo)
 
     gemini_api_key = get_credential("GEMINI_API_KEY", "GEMINI_API_KEY_SECRET_ARN")
     if not gemini_api_key:
@@ -112,7 +119,7 @@ def run_with_agent():
     model = GeminiModel(
         client_args={"api_key": gemini_api_key},
         model_id="gemini-3.6-flash",
-        params={"temperature": 0.7, "max_output_tokens": 2048},
+        params={"temperature": 0.7, "max_output_tokens": 4096},
     )
 
     agent = Agent(
@@ -135,6 +142,7 @@ if __name__ == "__main__":
     parser.add_argument("--local", action="store_true", help="Run without the Strands agent")
     parser.add_argument("--webhook", action="store_true", help="Start the GitHub webhook listener")
     parser.add_argument("--portfolio", action="store_true", help="Analyze repositories listed in PROJECT_REPOS")
+    parser.add_argument("--repo", help="Analyze this GitHub repository (owner/repository)")
     parser.add_argument("--host", default="127.0.0.1", help="Webhook bind host")
     parser.add_argument("--port", type=int, default=8080, help="Webhook bind port")
     args = parser.parse_args()
@@ -150,4 +158,4 @@ if __name__ == "__main__":
     elif args.local:
         run_local()
     else:
-        run_with_agent()
+        run_with_agent(args.repo)

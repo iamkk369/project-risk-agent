@@ -1,4 +1,4 @@
-# P6 AWS runtime dependencies
+# Optional AgentCore runtime dependencies
 bedrock-agentcore
 strands-agents[gemini]
 strands-agents-tools

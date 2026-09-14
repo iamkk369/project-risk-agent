@@ -23,7 +23,7 @@ configure_logging()
 app = BedrockAgentCoreApp()
 
 
-def _build_agent() -> Agent:
+def _build_agent(default_repository: str | None = None) -> Agent:
     """Build the Strands agent from runtime environment configuration."""
     api_key = get_credential("GEMINI_API_KEY", "GEMINI_API_KEY_SECRET_ARN")
     if not api_key:
@@ -36,9 +36,9 @@ def _build_agent() -> Agent:
     )
 
     @tool
-    def get_project_risk_report() -> str:
-        """Fetch the configured GitHub project and generate its latest risk report."""
-        return run_pipeline()
+    def get_project_risk_report(repository: str | None = None) -> str:
+        """Analyze the configured repository or an explicit owner/repository."""
+        return run_pipeline(repository or default_repository)
 
     return Agent(
         tools=[get_project_risk_report],
@@ -59,7 +59,11 @@ def project_risk_agent(payload: dict[str, Any]) -> dict[str, Any]:
             "inaction, and state the single best next decision for the manager."
         )
 
-    agent = _build_agent()
+    repository = payload.get("repository")
+    if repository is not None and not isinstance(repository, str):
+        raise ValueError("repository must be an owner/repository string when provided.")
+
+    agent = _build_agent(repository)
     result = agent(prompt)
     log_event(20, "agent_invocation_completed", "AgentCore invocation completed", outcome="success")
     return {"response": str(result), "request_id": request_id}
