@@ -5,6 +5,8 @@ data into an explainable delivery-risk report. It helps engineering managers,
 tech leads, and delivery teams find bottlenecks before a delayed task cascades
 into missed milestones.
 
+**Built by [Khilankumar Rajput](https://github.com/iamkk369)** for the AWS Agents for Humans Hackathon 2026 — Professional Agents track.
+
 The product is read-only: it fetches GitHub issues, evaluates risk, and
 recommends decisions. It does not modify issues or reassign work.
 
@@ -189,6 +191,13 @@ project-risk-agent/
 The controlled payment-gateway repository `iamkk369/risk-agent-demo` is
 retained only as a reproducible example/test data source. Project Risk Agent
 itself is repository-agnostic.
+
+## Author
+
+**Khilankumar Rajput**  
+GitHub: [@iamkk369](https://github.com/iamkk369)
+
+Built for the AWS Agents for Humans Hackathon 2026.
 
 ## License
 
