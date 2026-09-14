@@ -12,9 +12,9 @@ import sys
 import argparse
 from dotenv import load_dotenv
 
-from github_tool import fetch_open_issues, enrich_issues
-from risk_engine import analyze_all
-from report import generate_report
+from .github_tool import fetch_open_issues, enrich_issues
+from .risk_engine import analyze_all
+from .report import generate_report
 
 load_dotenv()
 
@@ -50,15 +50,26 @@ def run_with_agent():
     reasoning on top of the deterministic report (e.g. an executive summary).
     """
     from strands import Agent, tool
+    from strands.models.gemini import GeminiModel
 
     @tool
     def get_project_risk_report() -> str:
         """Fetch GitHub issues, analyze deadlines/dependencies, and return a risk report."""
         return run_pipeline()
 
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        raise RuntimeError("Set GEMINI_API_KEY in your .env file.")
+
+    model = GeminiModel(
+        client_args={"api_key": gemini_api_key},
+        model_id="gemini-3.6-flash",
+        params={"temperature": 0.7, "max_output_tokens": 2048},
+    )
+
     agent = Agent(
         tools=[get_project_risk_report],
-        model="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        model=model,
     )
 
     result = agent(

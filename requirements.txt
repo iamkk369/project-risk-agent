@@ -1,4 +1,4 @@
-strands-agents
+strands-agents[gemini]
 strands-agents-tools
 boto3
 requests

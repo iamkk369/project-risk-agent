@@ -36,7 +36,7 @@ GitHub Issues (open, with due dates + "blocks #N" / "blocked by #N" references)
           ▼
 ┌───────────────────┐
 │  Strands Agent     │  wraps the pipeline as a tool, adds an executive
-│  (Amazon Bedrock)  │  summary on top for the reader
+│  (Google Gemini)   │  summary on top for the reader
 └─────────┬──────────┘
           ▼
 ┌───────────────────┐
@@ -45,7 +45,7 @@ GitHub Issues (open, with due dates + "blocks #N" / "blocked by #N" references)
 └───────────────────┘
 ```
 
-See [`architecture.md`](./architecture.md) for the full diagram.
+See [`docs/architecture.md`](./docs/architecture.md) for the full diagram.
 
 ### Risk Scoring Logic
 
@@ -75,28 +75,28 @@ pip install -r requirements.txt
 
 ### 2. Configure environment
 
-Copy `.env.example` to `.env` and fill in:
+Copy `config/env.example` to `.env` and fill in:
 
 ```
 GITHUB_TOKEN=your_github_personal_access_token
 GITHUB_REPO=owner/repo-name
-AWS_REGION=us-east-1
+GEMINI_API_KEY=your_gemini_api_key
 ```
 
 Your GitHub token needs `repo` scope to read issues.
 
-### 3. AWS credentials (for the full agent run)
+### 3. Gemini API key (for the full agent run)
 
-Configure AWS credentials with Bedrock access (`aws configure`, or environment variables). Make sure Claude models are enabled under **Bedrock → Model access** in the `us-east-1` region.
+Set your Gemini API key in the environment as `GEMINI_API_KEY` so the Strands agent can call the Gemini model for the executive summary step.
 
 ### 4. Run it
 
 ```bash
-# Full run — Strands Agent + Bedrock (adds an executive summary)
-python main.py
+# Full run — Strands Agent + Gemini (adds an executive summary)
+python -m src.risk_agent.main
 
-# Local run — pipeline only, no Bedrock needed (useful for testing)
-python main.py --local
+# Local run — pipeline only, no Gemini needed (useful for testing)
+python -m src.risk_agent.main --local
 ```
 
 The report prints to the terminal and saves to `risk_report.md`.
@@ -118,20 +118,24 @@ This makes the demo reproducible: run it against the same repo and you'll see th
 
 - **Python 3.14**
 - **Strands Agents SDK** — agent framework and tool orchestration
-- **Amazon Bedrock (Claude)** — model provider for the agent's reasoning layer
+- **Google Gemini** — model provider for the agent's reasoning layer
 - **GitHub REST API** — project data source
 - Deterministic Python risk-scoring engine (no ML — every score is explainable)
 
 ## Project Structure
 
 ```
-├── main.py           # Entry point — wires everything together
-├── github_tool.py     # Fetches + parses GitHub issues
-├── risk_engine.py     # Rule-based risk scoring
-├── report.py          # Markdown report generation
+├── src/risk_agent/    # Application package
+│   ├── main.py        # Entry point — wires everything together
+│   ├── github_tool.py # Fetches + parses GitHub issues
+│   ├── risk_engine.py # Rule-based risk scoring
+│   └── report.py      # Markdown report generation
+├── config/
+│   └── env.example    # Safe configuration template
+├── docs/
+│   └── architecture.md
 ├── requirements.txt
-├── .env.example
-└── architecture.md    # Detailed architecture diagram
+└── .gitignore
 ```
 
 ## What's Out of Scope (for this MVP)
