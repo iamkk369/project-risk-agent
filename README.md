@@ -180,7 +180,7 @@ python -m risk_agent.main --local --repo pallets/flask
 **Execution:**
 
 ```bash
-python -m risk_agent.main --repo pallets/flask
+python -m src.risk_agent.main --repo pallets/flask
 ```
 
 **Actual result:**
