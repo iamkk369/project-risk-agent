@@ -7,6 +7,7 @@ Two ways to run this:
                                             so the model adds the executive reasoning pass.
 """
 import os
+import sys
 import argparse
 from dotenv import load_dotenv
 
@@ -65,7 +66,6 @@ def run_pipeline(repo: str | None = None) -> str:
     return report_md
 
 
-
 def run_portfolio() -> str:
     """Analyze all repositories configured in PROJECT_REPOS independently."""
     repos = parse_project_repos(os.getenv("PROJECT_REPOS"))
@@ -89,14 +89,21 @@ def _analyze_project_for_portfolio(repo: str) -> list[dict]:
     issues = enrich_issues(issues)
     return analyze_all(issues)
 
+def _safe_print(text: str) -> None:
+    """Print text to stdout without crashing on console-unsupported characters."""
+    sys.stdout.buffer.write(text.encode("utf-8", errors="replace"))
+    sys.stdout.buffer.write(b"\n")
+    sys.stdout.buffer.flush()
+
+
 def run_local(repo: str | None = None):
     """Run the deterministic pipeline directly and print the report. No Strands agent call."""
     report_md = run_pipeline(repo)
-    print(report_md)
+    _safe_print(report_md)
 
     with open("risk_report.md", "w", encoding="utf-8") as f:
         f.write(report_md)
-    print("\n\n[Saved to risk_report.md]")
+    _safe_print("\n\n[Saved to risk_report.md]")
 
 
 def run_with_agent(repo: str | None = None):
@@ -118,7 +125,7 @@ def run_with_agent(repo: str | None = None):
 
     model = GeminiModel(
         client_args={"api_key": gemini_api_key},
-        model_id="gemini-3.6-flash",
+        model_id="gemini-1.5-flash",
         params={"temperature": 0.7, "max_output_tokens": 4096},
     )
 
