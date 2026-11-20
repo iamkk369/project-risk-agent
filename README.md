@@ -238,6 +238,14 @@ project-risk-agent/
     └── test_risk_agent.py             # Tests fetching, scoring, reporting, and integrations
 ```
 
+## Setup and Testing
+
+```powershell
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
 The controlled payment-gateway repository `iamkk369/risk-agent-demo` is
 retained only as a reproducible example/test data source. Project Risk Agent
 itself is repository-agnostic.
