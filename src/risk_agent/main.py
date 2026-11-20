@@ -34,11 +34,19 @@ def _get_github_token() -> str:
     return github_token
 
 
-def _get_runtime_config() -> tuple[str, str]:
-    """Read the default single-repository settings at runtime."""
-    github_repo = os.getenv("GITHUB_REPO")
+def _get_runtime_config(repo: str | None = None) -> tuple[str, str]:
+    """Read the repository settings at runtime with configurable precedence.
+
+    Precedence:
+    - Explicit ``repo`` argument first.
+    - ``GITHUB_REPO`` environment variable as fallback.
+    - Raise ``RuntimeError`` if neither is provided.
+    """
+    github_repo = repo or os.getenv("GITHUB_REPO")
     if not github_repo:
-        raise RuntimeError("Set GITHUB_REPO to an owner/repository value.")
+        raise RuntimeError(
+            "Set GITHUB_REPO to an owner/repository value, or provide --repo argument."
+        )
     return _get_github_token(), github_repo
 
 
@@ -46,8 +54,7 @@ def run_pipeline(repo: str | None = None) -> str:
     """The core deterministic pipeline: fetch -> enrich -> score -> report."""
     request_id = set_request_id()
     log_event(20, "analysis_started", "Project risk analysis started")
-    github_token, configured_repo = _get_runtime_config()
-    github_repo = repo or configured_repo
+    github_token, github_repo = _get_runtime_config(repo)
 
     issues = fetch_open_issues(github_repo, github_token)
     issues = enrich_issues(issues)

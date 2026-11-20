@@ -561,6 +561,55 @@ class TestRiskHistory:
         assert result["baseline"] is False
         assert result["project_change"] == "Unchanged: Watch"
 
+def test_explicit_repo_works_when_env_unset(monkeypatch):
+    """Explicit CLI repository works when GITHUB_REPO is unset."""
+    # Mock _get_github_token to return a token
+    monkeypatch.setattr("src.risk_agent.main._get_github_token", lambda: "ghp_token")
+    # Ensure GITHUB_REPO is not set
+    monkeypatch.delenv("GITHUB_REPO", raising=False)
+    # Run _get_runtime_config with explicit repo
+    from src.risk_agent.main import _get_runtime_config
+    token, repo = _get_runtime_config(repo="owner/repo")
+    assert repo == "owner/repo"
+    assert token == "ghp_token"
+
+
+def test_env_repo_works_when_no_explicit(monkeypatch):
+    """Environment repository works when no explicit repository is provided."""
+    # Mock _get_github_token to return a token
+    monkeypatch.setattr("src.risk_agent.main._get_github_token", lambda: "ghp_token")
+    # Set GITHUB_REPO env var
+    monkeypatch.setenv("GITHUB_REPO", "env_owner/repo")
+    from src.risk_agent.main import _get_runtime_config
+    token, repo = _get_runtime_config()
+    assert repo == "env_owner/repo"
+    assert token == "ghp_token"
+
+
+def test_explicit_overrides_env(monkeypatch):
+    """Explicit repository overrides the environment value."""
+    # Mock _get_github_token to return a token
+    monkeypatch.setattr("src.risk_agent.main._get_github_token", lambda: "ghp_token")
+    # Set GITHUB_REPO env var
+    monkeypatch.setenv("GITHUB_REPO", "env_owner/repo")
+    from src.risk_agent.main import _get_runtime_config
+    # Pass explicit repo which should override env
+    token, repo = _get_runtime_config(repo="explicit_owner/repo")
+    assert repo == "explicit_owner/repo"
+    assert token == "ghp_token"
+
+
+def test_missing_both_raises_error(monkeypatch):
+    """Missing both values raises the expected configuration error."""
+    # Mock _get_github_token to return a token
+    monkeypatch.setattr("src.risk_agent.main._get_github_token", lambda: "ghp_token")
+    # Ensure GITHUB_REPO is not set
+    monkeypatch.delenv("GITHUB_REPO", raising=False)
+    from src.risk_agent.main import _get_runtime_config
+    with pytest.raises(RuntimeError, match="Set GITHUB_REPO"):
+        _get_runtime_config()
+
+
 class TestS3Observability:
     def test_log_event_includes_s3_uri(self, caplog):
         from io import StringIO
