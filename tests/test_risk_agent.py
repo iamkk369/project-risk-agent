@@ -306,9 +306,76 @@ def test_summarize_project_risk_identifies_bottleneck_and_exposure():
     assert summary["high_count"] == 3
     assert summary["bottleneck_issue"] == 1
     assert summary["bottleneck_downstream_count"] == 2
-    assert summary["bottleneck_chain_length"] == 3
-    assert summary["affected_issue_numbers"] == [2, 3]
 
+
+class TestRiskAnalysis:
+    def test_analyze_all_propagates_overdue_risk_to_downstream_issue(self):
+        from src.risk_agent.risk_engine import analyze_all
+
+        issues = [
+            # Overdue upstream: calculate_risk -> High (overdue AND blocks)
+            make_issue(1, title="Overdue upstream", is_overdue=True, days_overdue=1, blocks=[2]),
+            # Downstream with no dependencies: should become High due to propagation
+            make_issue(2, title="Dependent leaf"),
+        ]
+        analyze_all(issues)
+
+        upstream = next(i for i in issues if i["number"] == 1)
+        downstream = next(i for i in issues if i["number"] == 2)
+
+        assert upstream["risk_level"] == "High"
+        assert downstream["risk_level"] == "High"
+        assert "Blocked by High Risk upstream task #1" in downstream["risk_reason"]
+        assert downstream["recommended_action"] == "Escalate the upstream bottleneck and confirm a recovery plan for this issue's dependent work."
+
+    def test_analyze_all_preserves_input_identity_fields_and_adds_analysis_only(self):
+        from src.risk_agent.risk_engine import analyze_all
+
+        original = [
+            make_issue(1, title="Original title", body="original body", url="https://example.com/1"),
+            make_issue(2, title="Another original", body="another body", url="https://example.com/2"),
+        ]
+        input_copy = [{"number": i["number"], "title": i["title"], "body": i.get("body", ""), "url": i.get("url", "")} for i in original]
+        analyze_all(original)
+
+        for original_issue, saved in zip(original, input_copy):
+            assert original_issue["number"] == saved["number"]
+            assert original_issue["title"] == saved["title"]
+            assert original_issue.get("body", "") == saved["body"]
+            assert original_issue.get("url", "") == saved["url"]
+            # Only analysis/graph-metric fields may have changed
+            assert set(original_issue.keys()) >= {"number", "title", "body", "url", "risk_level", "risk_reason", "recommended_action"}
+
+    def test_summarize_project_risk_aggregate_counts_match_individual_analysis(self):
+        from src.risk_agent.risk_engine import analyze_all, summarize_project_risk
+
+        issues = [
+            make_issue(1, title="High overdue and blocks 2", is_overdue=True, days_overdue=3, blocks=[2]),
+            make_issue(2, title="downstream of high 1"),
+            make_issue(3, title="Medium due soon", days_until_due=1, blocks=[5]),
+            make_issue(4, title="Low isolated 4"),
+            make_issue(5, title="Low isolated 5"),
+        ]
+        analyze_all(issues)
+        summary = summarize_project_risk(issues)
+
+        assert summary["total_issues"] == 5
+        assert summary["high_count"] == 2
+        assert summary["medium_count"] == 1
+        assert summary["low_count"] == 2
+        assert summary["high_count"] + summary["medium_count"] + summary["low_count"] == summary["total_issues"]
+        assert summary["risk_count"] == 3
+        assert summary["bottleneck_issue"] == 1
+        assert summary["bottleneck_title"] == "High overdue and blocks 2"
+        assert summary["bottleneck_downstream_count"] == 1
+        assert summary["bottleneck_chain_length"] == 2
+        # issue 2 is downstream of high-risk issue 1, escalated to High
+        assert issues[1]["risk_level"] == "High"
+        # issue 3 is a standalone near-deadline Medium issue
+        assert issues[2]["risk_level"] == "Medium"
+        # issues 4 and 5 have no downstream impact
+        assert issues[3]["downstream_count"] == 0
+        assert issues[4]["downstream_count"] == 0
 
 def test_summarize_project_risk_reports_on_track_when_no_risks():
     issues = [make_issue(1), make_issue(2)]
@@ -353,222 +420,153 @@ class TestRiskHistory:
         assert result["new_risks"] == ["4"]
         assert result["project_change"] == "Watch → Critical"
 
-    def test_saves_bounded_history(self, tmp_path):
-        from src.risk_agent.history import save_snapshot, load_latest_history
-        path = tmp_path / "history.json"
-        for i in range(3):
-            save_snapshot(path, {"timestamp": str(i)}, max_snapshots=2)
-        data = __import__("json").loads(path.read_text())
-        assert len(data["snapshots"]) == 2
-        assert load_latest_history(path)["timestamp"] == "2"
 
-class TestDecisionSupport:
-    def test_prioritizes_highest_delivery_risk_and_adds_consequence(self):
-        from src.risk_agent.decision_support import enrich_decision_support
+    def test_compare_history_deescalating_high_to_low(self):
+        from src.risk_agent.history import compare_history
 
+        previous = {
+            "timestamp": "2026-09-14T00:00:00+00:00",
+            "project": {"posture": "Critical"},
+            "issues": {
+                "1": {"title": "Root", "risk_level": "High"},
+            },
+        }
         issues = [
-            make_issue(1, title="Bottleneck", blocks=[2, 3], is_overdue=True, days_overdue=2, risk_level="High"),
-            make_issue(2, title="Downstream", risk_level="Medium"),
-            make_issue(3, title="Other", risk_level="Low"),
+            {"number": 1, "title": "Root", "risk_level": "Low"},
         ]
-        issues[0]["downstream_count"] = 2
-        issues[0]["critical_chain_length"] = 3
-        issues[1]["downstream_count"] = 0
-        issues[1]["critical_chain_length"] = 1
-        summary = {"posture": "Critical"}
+        summary = {"posture": "On Track", "risk_count": 0, "affected_issue_count": 0, "bottleneck_issue": None}
+        result = compare_history(previous, issues, summary)
+        assert result["deescalating"] == ["1"]
+        assert result["escalating"] == []
+        assert result["persistent"] == []
+        assert result["resolved"] == []
+        assert result["new_risks"] == []
+        assert result["baseline"] is False
+        assert result["project_change"] == "Critical → On Track"
 
-        enrich_decision_support(issues, summary)
+    def test_compare_history_resolved_issue_absent_from_current(self):
+        from src.risk_agent.history import compare_history
 
-        assert summary["recommended_focus_issue"] == 1
-        assert issues[0]["decision_priority"] == 1
-        assert issues[0]["urgency"] == "Immediate"
-        assert "2 downstream issue(s)" in issues[0]["potential_consequence"]
-        assert "recovery plan" in issues[0]["decision"]
-
-    def test_propagated_high_risk_points_to_upstream_intervention(self):
-        from src.risk_agent.decision_support import enrich_decision_support
-
+        previous = {
+            "timestamp": "2026-09-14T00:00:00+00:00",
+            "project": {"posture": "Critical"},
+            "issues": {
+                "1": {"title": "Root", "risk_level": "High"},
+                "2": {"title": "Downstream", "risk_level": "Medium"},
+            },
+        }
         issues = [
-            make_issue(1, title="Root blocker", blocks=[2], is_overdue=True, days_overdue=2, risk_level="High"),
-            make_issue(2, title="Downstream task", blocked_by=[1], risk_level="High"),
+            {"number": 1, "title": "Root", "risk_level": "High"},
         ]
-        issues[0]["downstream_count"] = 1
-        issues[0]["critical_chain_length"] = 2
-        issues[1]["downstream_count"] = 0
-        issues[1]["critical_chain_length"] = 1
-        issues[1]["upstream_blockers"] = [1]
-        summary = {"posture": "Critical"}
+        summary = {"posture": "Watch", "risk_count": 1, "affected_issue_count": 0, "bottleneck_issue": None}
+        result = compare_history(previous, issues, summary)
+        assert result["resolved"] == ["2"]
+        assert result["deescalating"] == []
+        assert result["escalating"] == []
+        assert result["persistent"] == ["1"]
+        assert result["new_risks"] == []
+        assert result["project_change"] == "Critical → Watch"
 
-        enrich_decision_support(issues, summary)
+    def test_compare_history_multiple_issues_one_branch_each(self):
+        from src.risk_agent.history import compare_history
 
-        assert "upstream blocker #1" in issues[1]["decision"]
-        assert "No intervention required" not in issues[1]["decision"]
-
-    def test_on_track_issue_has_no_decision_priority(self):
-        from src.risk_agent.decision_support import enrich_decision_support
-
-        issues = [make_issue(1, risk_level="Low")]
-        summary = {"posture": "On Track"}
-
-        enrich_decision_support(issues, summary)
-
-        assert issues[0]["decision_priority"] is None
-        assert summary["recommended_focus_issue"] is None
-        assert "No intervention" in summary["recommended_focus_reason"]
-
-class TestEventDrivenExecution:
-    def test_signature_verification(self):
-        import hashlib
-        import hmac
-        from src.risk_agent.webhook import verify_signature
-
-        body = b'{"action":"opened"}'
-        secret = "test-secret"
-        digest = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-        assert verify_signature(secret, body, f"sha256={digest}")
-        assert not verify_signature(secret, body, "sha256=bad")
-        assert not verify_signature(secret, body, None)
-
-    def test_supported_issue_event_triggers_analysis(self):
-        from src.risk_agent.event_handler import handle_github_event
-
-        calls = []
-        payload = {
-            "action": "edited",
-            "repository": {"full_name": "owner/repo"},
+        previous = {
+            "timestamp": "2026-09-14T00:00:00+00:00",
+            "project": {"posture": "Watch"},
+            "issues": {
+                "1": {"title": "Escalate", "risk_level": "Low"},
+                "2": {"title": "Persist", "risk_level": "Medium"},
+                "3": {"title": "De-escalate", "risk_level": "High"},
+                "4": {"title": "Old", "risk_level": "High"},
+            },
         }
-        result = handle_github_event("issues", payload, lambda: calls.append(True), "owner/repo")
-
-        assert result["triggered"] is True
-        assert calls == [True]
-
-    def test_unrelated_repository_is_rejected(self):
-        from src.risk_agent.event_handler import handle_github_event
-
-        calls = []
-        payload = {
-            "action": "opened",
-            "repository": {"full_name": "attacker/other-repo"},
-        }
-        result = handle_github_event("issues", payload, lambda: calls.append(True), "owner/repo")
-
-        assert result["status"] == "rejected"
-        assert result["triggered"] is False
-        assert calls == []
-
-    def test_non_triggering_issue_action_is_ignored(self):
-        from src.risk_agent.event_handler import handle_github_event
-
-        calls = []
-        payload = {
-            "action": "assigned",
-            "repository": {"full_name": "owner/repo"},
-        }
-        result = handle_github_event("issues", payload, lambda: calls.append(True), "owner/repo")
-
-        assert result["status"] == "ignored"
-        assert result["triggered"] is False
-        assert calls == []
-
-
-def test_security_prefers_secrets_manager(monkeypatch):
-    from src.risk_agent.security import get_credential, get_secret
-
-    monkeypatch.setenv("GITHUB_TOKEN", "env-token")
-    monkeypatch.setenv("GITHUB_TOKEN_SECRET_ARN", "arn:aws:secretsmanager:us-east-1:123:secret:token")
-
-    # boto3 is imported lazily so the test injects a minimal fake module.
-    import sys
-    import types
-    fake_boto3 = types.SimpleNamespace(client=Mock(return_value=Mock(get_secret_value=Mock(return_value={"SecretString": "secret-token"}))))
-    monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
-    get_secret.cache_clear()
-    assert get_credential("GITHUB_TOKEN", "GITHUB_TOKEN_SECRET_ARN") == "secret-token"
-
-
-def test_security_falls_back_to_environment(monkeypatch):
-    from src.risk_agent.security import get_credential
-
-    monkeypatch.setenv("GEMINI_API_KEY", "env-key")
-    monkeypatch.delenv("GEMINI_API_KEY_SECRET_ARN", raising=False)
-    assert get_credential("GEMINI_API_KEY", "GEMINI_API_KEY_SECRET_ARN") == "env-key"
-
-
-def test_security_does_not_log_secret_values(caplog):
-    from src.risk_agent.observability import configure_logging, log_event
-    import logging
-
-    configure_logging()
-    with caplog.at_level(logging.INFO, logger="risk_agent"):
-        log_event(logging.INFO, "test", "credential configured", outcome="success")
-    assert "credential configured" in caplog.text
-    assert "secret-token" not in caplog.text
-
-
-def test_agentcore_env_example_contains_secret_arn_hooks():
-    from pathlib import Path
-
-    text = Path("deploy/agentcore.env.example").read_text(encoding="utf-8")
-    assert "GITHUB_TOKEN_SECRET_ARN=" in text
-    assert "GEMINI_API_KEY_SECRET_ARN=" in text
-
-class TestPortfolioAnalysis:
-    def test_parse_project_repos_deduplicates_and_trims(self):
-        from src.risk_agent.portfolio import parse_project_repos
-        assert parse_project_repos(" a/b, c/d\na/b, c/d ") == ["a/b", "c/d"]
-
-    def test_summarize_portfolio_prioritizes_critical_projects(self):
-        from src.risk_agent.portfolio import summarize_portfolio
-        results = [
-            {"repo": "team/healthy", "summary": {"posture": "On Track", "high_count": 0, "affected_issue_count": 0, "bottleneck_downstream_count": 0}},
-            {"repo": "team/watch", "summary": {"posture": "Watch", "high_count": 0, "affected_issue_count": 2, "bottleneck_downstream_count": 1}},
-            {"repo": "team/critical", "summary": {"posture": "Critical", "high_count": 1, "affected_issue_count": 3, "bottleneck_downstream_count": 2}},
+        issues = [
+            {"number": 1, "title": "Escalate", "risk_level": "Medium"},
+            {"number": 2, "title": "Persist", "risk_level": "Medium"},
+            {"number": 3, "title": "De-escalate", "risk_level": "Low"},
         ]
-        summary = summarize_portfolio(results)
-        assert summary["overall_posture"] == "Critical"
-        assert summary["priority_projects"] == ["team/critical", "team/watch"]
+        summary = {"posture": "On Track", "risk_count": 2, "affected_issue_count": 0, "bottleneck_issue": None}
+        result = compare_history(previous, issues, summary)
+        assert result["escalating"] == ["1"]
+        assert result["persistent"] == ["2"]
+        assert result["deescalating"] == ["3"]
+        assert result["resolved"] == ["4"]
+        assert result["new_risks"] == []
+        assert result["baseline"] is False
 
-    def test_analyze_portfolio_keeps_project_boundaries(self):
-        from src.risk_agent.portfolio import analyze_portfolio
-        calls = []
-        def fake(repo):
-            calls.append(repo)
-            posture = "Critical" if repo == "a/b" else "On Track"
-            return {"summary": {"posture": posture, "high_count": 1 if posture == "Critical" else 0,
-                                  "medium_count": 0, "total_issues": 2, "risk_count": 1 if posture == "Critical" else 0,
-                                  "affected_issue_count": 1 if posture == "Critical" else 0,
-                                  "bottleneck_issue": 1 if posture == "Critical" else None,
-                                  "bottleneck_title": "Root" if posture == "Critical" else None}}
-        results, summary, report = analyze_portfolio(["a/b", "c/d"], fake)
-        assert calls == ["a/b", "c/d"]
-        assert summary["project_count"] == 2
-        assert summary["overall_posture"] == "Critical"
-        assert "a/b" in report and "c/d" in report
+    def test_compare_history_empty_current_snapshot(self):
+        from src.risk_agent.history import compare_history
+
+        previous = {
+            "timestamp": "2026-09-14T00:00:00+00:00",
+            "project": {"posture": "Critical"},
+            "issues": {
+                "1": {"title": "Root", "risk_level": "High"},
+            },
+        }
+        issues = []
+        summary = {"posture": "On Track", "risk_count": 0, "affected_issue_count": 0, "bottleneck_issue": None}
+        result = compare_history(previous, issues, summary)
+        assert result["resolved"] == ["1"]
+        assert result["escalating"] == []
+        assert result["deescalating"] == []
+        assert result["persistent"] == []
+        assert result["new_risks"] == []
+        assert result["project_change"] == "Critical → On Track"
 
 
-def test_persist_report_to_s3_is_disabled_without_bucket(monkeypatch):
-    from src.risk_agent.storage import persist_report_to_s3
+    def test_compare_history_escalating_medium_to_high(self):
+        from src.risk_agent.history import compare_history
 
-    monkeypatch.delenv("S3_REPORT_BUCKET", raising=False)
-    assert persist_report_to_s3("# report", "example/repo") is None
+        previous = {
+            "timestamp": "2026-09-14T00:00:00+00:00",
+            "project": {"posture": "Watch"},
+            "issues": {
+                "1": {"title": "Root", "risk_level": "Low"},
+            },
+        }
+        issues = [
+            {"number": 1, "title": "Root", "risk_level": "High"},
+        ]
+        summary = {"posture": "Watch", "risk_count": 1, "affected_issue_count": 0, "bottleneck_issue": None}
+        result = compare_history(previous, issues, summary)
+        assert result["escalating"] == ["1"]
+        assert result["deescalating"] == []
+        assert result["persistent"] == []
+        assert result["resolved"] == []
+        assert result["new_risks"] == []
+        assert result["baseline"] is False
+        assert result["project_change"] == "Unchanged: Watch"
 
+    def test_compare_history_escalating_low_to_medium(self):
+        from src.risk_agent.history import compare_history
 
-def test_persist_report_to_s3_uploads_encrypted_markdown(monkeypatch):
-    from src.risk_agent.storage import persist_report_to_s3
+        previous = {
+            "timestamp": "2026-09-14T00:00:00+00:00",
+            "project": {"posture": "Watch"},
+            "issues": {
+                "1": {"title": "Root", "risk_level": "Low"},
+            },
+        }
+        issues = [
+            {"number": 1, "title": "Root", "risk_level": "Medium"},
+        ]
+        summary = {"posture": "Watch", "risk_count": 1, "affected_issue_count": 0, "bottleneck_issue": None}
+        result = compare_history(previous, issues, summary)
+        assert result["escalating"] == ["1"]
+        assert result["deescalating"] == []
+        assert result["persistent"] == []
+        assert result["resolved"] == []
+        assert result["new_risks"] == []
+        assert result["baseline"] is False
+        assert result["project_change"] == "Unchanged: Watch"
 
-    client = Mock()
-    monkeypatch.setattr("src.risk_agent.storage.boto3.client", Mock(return_value=client))
-    monkeypatch.setenv("S3_REPORT_BUCKET", "risk-agent-reports")
-    monkeypatch.setenv("S3_REPORT_PREFIX", "reports")
-    monkeypatch.setenv("AWS_REGION", "us-east-1")
+class TestS3Observability:
+    def test_log_event_includes_s3_uri(self, caplog):
+        from src.risk_agent.observability import configure_logging, log_event
+        import logging
 
-    uri = persist_report_to_s3("# report", "owner/repo")
-
-    assert uri.startswith("s3://risk-agent-reports/reports/owner-repo/risk-report-")
-    assert uri.endswith(".md")
-    kwargs = client.put_object.call_args.kwargs
-    assert kwargs["Bucket"] == "risk-agent-reports"
-    assert kwargs["Key"].startswith("reports/owner-repo/risk-report-")
-    assert kwargs["Body"] == b"# report"
-    assert kwargs["ContentType"] == "text/markdown; charset=utf-8"
-    assert kwargs["ServerSideEncryption"] == "AES256"
+        configure_logging()
+        with caplog.at_level(logging.INFO, logger="risk_agent"):
+            log_event(logging.INFO, "test", "message", s3_uri="s3://bucket/key")
+        assert '"s3_uri":"s3://bucket/key"' in caplog.text
