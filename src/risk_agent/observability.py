@@ -28,7 +28,7 @@ def configure_logging() -> None:
                 "request_id": _request_id.get(),
                 "service": os.getenv("SERVICE_NAME", "project-risk-agent"),
             }
-            for key in ("event", "repository", "delivery_id", "duration_ms", "outcome"):
+            for key in ("event", "repository", "delivery_id", "duration_ms", "outcome", "s3_uri"):
                 value = getattr(record, key, None)
                 if value is not None:
                     payload[key] = value
@@ -61,7 +61,7 @@ def log_event(level: int, event: str, message: str, **fields: Any) -> None:
         exc_info=None,
     )
     record.event = event
-    for key in ("repository", "delivery_id", "duration_ms", "outcome"):
+    for key in ("repository", "delivery_id", "duration_ms", "outcome", "s3_uri"):
         if key in fields:
             setattr(record, key, fields[key])
     logging.getLogger("risk_agent").handle(record)
