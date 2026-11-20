@@ -563,10 +563,25 @@ class TestRiskHistory:
 
 class TestS3Observability:
     def test_log_event_includes_s3_uri(self, caplog):
-        from src.risk_agent.observability import configure_logging, log_event
+        from io import StringIO
+
+        from src.risk_agent.observability import (
+            configure_logging,
+            log_event,
+            _JsonFormatter,
+        )
         import logging
 
         configure_logging()
-        with caplog.at_level(logging.INFO, logger="risk_agent"):
-            log_event(logging.INFO, "test", "message", s3_uri="s3://bucket/key")
-        assert '"s3_uri":"s3://bucket/key"' in caplog.text
+        stream = StringIO()
+        capture = logging.StreamHandler(stream)
+        capture.setFormatter(_JsonFormatter())
+        root = logging.getLogger()
+        root.addHandler(capture)
+        try:
+            with caplog.at_level(logging.INFO, logger="risk_agent"):
+                log_event(logging.INFO, "test", "message", s3_uri="s3://bucket/key")
+            output = stream.getvalue()
+        finally:
+            root.removeHandler(capture)
+        assert '"s3_uri":"s3://bucket/key"' in output
